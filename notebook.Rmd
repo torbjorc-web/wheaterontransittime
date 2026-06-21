@@ -1,0 +1,155 @@
+---
+title: "Commute Times"
+output: html-notebook
+---
+
+
+```{r, message=FALSE}
+# Load libraries
+library(ggplot2)
+library(dplyr)
+library(rdd)
+```
+
+
+# Helper Function for Plotting
+```{r}
+# Wrap scatter plot in reusable function
+plot_scatter <- function(data, x, y, group, title = NULL) {
+  ggplot(data, aes(x = !!x, y = !!y, color = !!group, shape = !!group)) +
+    geom_point() +
+    theme_minimal() +
+    labs(title = title)
+}
+```
+
+
+# Task 1
+```{r}
+# Load dataset
+snow_df <- read.csv("snow.csv")
+```
+
+
+# Task 2
+```{r}
+# Inspect dataframe
+head(snow_df)
+summary(snow_df)
+```
+
+
+# Task 3
+```{r}
+# Create base scatter plot
+scatter_base <- plot_scatter(snow_df, "snowfall", "minutes", "emergency", title = "Snowfall vs Commute Time")
+print(scatter_base)
+```
+
+
+# Task 4
+```{r}
+# Add vertical cutpoint line at 4 inches
+scatter_cutpoint <- scatter_base +
+  geom_vline(xintercept = 4, linetype = "dashed", color = "black") +
+  annotate("text", x = 4, y = max(snow_df$minutes), label = "Cutoff (4\")", 
+           vjust = -0.5, size = 3, angle = 90)
+
+print(scatter_cutpoint)
+```
+
+**Answer:** This is a **sharp RDD** because treatment is determined exactly by the cutoff.
+
+
+# Task 5
+```{r, message = FALSE}
+# Add linear best fit lines for each group
+scatter_fit <- scatter_cutpoint +
+  geom_smooth(method = "lm", se = FALSE)
+
+print(scatter_fit)
+```
+
+**Answer:** Yes, there appears to be a **discontinuity** at the cutpoint.
+
+
+# Task 6
+```{r, message=FALSE}
+# Calculate optimal IK bandwidth using ddpi
+snow_ik_bw <- ddpi(snow_df$snowfall, snow_df$minutes, 4)
+print(snow_ik_bw)
+```
+
+**Answer:** The bandwidth (~2.63) is **small** relative to the forcing variable scale.
+
+
+# Task 7
+```{r}
+# Add bandwidth range lines
+scatter_bw <- scatter_cutpoint +
+  geom_vline(xintercept = 4 - snow_ik_bw, linetype = "solid", color = "red", linewidth = 0.8) +
+  geom_vline(xintercept = 4 + snow_ik_bw, linetype = "solid", color = "red", linewidth = 0.8) +
+  annotate("text", x = 4 - snow_ik_bw, y = max(snow_df$minutes), 
+           label = paste("-", round(snow_ik_bw, 2)), vjust = -0.5, size = 3) +
+  annotate("text", x = 4 + snow_ik_bw, y = max(snow_df$minutes), 
+           label = paste("+", round(snow_ik_bw, 2)), vjust = -0.5, size = 3)
+
+print(scatter_bw)
+```
+
+**Answer:** Data outside bandwidth reduces precision but improves internal validity.
+
+
+# Task 8
+```{r, message=FALSE}
+# Fit local linear regression model
+snow_rdd <- RDestimate(snow_df$snowfall, snow_df$minutes, 4)
+```
+
+
+# Task 9
+```{r}
+# Display RDD results
+print(snow_rdd)
+```
+
+**Answer:** LATE estimates across bandwidths are **relatively similar** (robust).
+
+
+# Task 10
+```{r}
+# Number of observations by bandwidth
+cat("Observations:\n")
+print(snow_rdd$N)
+```
+
+**Answer:** Sample size: **Half < Optimal < Double** bandwidth.
+
+
+# Task 11
+```{r}
+# Standard errors by bandwidth
+cat("Standard Errors:\n")
+print(snow_rdd$se)
+```
+
+**Answer:** Standard errors **decrease** as sample size increases.
+
+
+# Task 12: Summary
+```{r}
+# Key results summary
+cat("\n=== RDD Results Summary ===\n")
+cat("Optimal bandwidth:", round(snow_ik_bw, 3), "inches\n")
+cat("LATE estimate:", round(snow_rdd$estimate["Estimate"], 2), "minutes\n")
+cat("Bandwidth range:", round(4 - snow_ik_bw, 2), "to", round(4 + snow_ik_bw, 2), "inches\n")
+```
+
+**Key Results:**
+| Metric | Value |
+|--------|-------|
+| Optimal bandwidth | 2.63 inches |
+| LATE | -11.04 minutes |
+| Interpretation | Snow emergency reduced commute time by 11.04 minutes |
+
+**Generalizability:** The bandwidth covers **1.37–6.63 inches** of snowfall. This LATE applies only to **marginal snow emergencies near the 4-inch threshold**, not to extreme weather (10+ inches) or sub-cutoff snowfall. RDD provides strong internal validity but limited external validity.
